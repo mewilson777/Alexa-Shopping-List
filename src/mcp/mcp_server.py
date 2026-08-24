@@ -18,6 +18,16 @@ from pathlib import Path
 # Import the local config
 try:
     from . import config as mcp_config
+    from .alexa_api import ( # Relative import
+        get_shopping_lists,
+        get_shopping_list_items,
+        add_shopping_list_item,
+        delete_shopping_list_item,
+        mark_item_as_completed,
+        unmark_item_as_completed,
+        filter_incomplete_items,
+        # No filter_completed_items, we'll do it inline
+    )
 except ImportError as e:
     print(f"Error importing local MCP config: {e}", file=sys.stderr)
     print("Ensure you are running from the project root or have activated the correct environment.", file=sys.stderr)
@@ -100,68 +110,89 @@ def make_api_request(method: str, endpoint: str, json_data: Optional[Dict] = Non
 # These now proxy requests to our FastAPI server
 
 @mcp.tool()
-def get_all_items() -> list[dict]:
+def get_lists() -> list[dict]:
+    """
+    Retrieves the Alexa lists available to the account.
+    """
+    logger.info("Tool 'get_lists' called.")
+    
+    lists = get_shopping_lists()
+
+    # Make sure we return a list even if API somehow returns something else
+    if isinstance(lists, list):
+        return lists  # API already returns the list format we need
+    else:
+        logger.warning(f"Unexpected response format from API, expected list but got: {type(lists)}")
+        return []
+
+
+
+@mcp.tool()
+def get_all_items(list_name: Optional[str] = None) -> list[dict]:
     """
     Retrieves all items currently on the Alexa shopping list, including both active (incomplete) and completed items.
+    If list_name is provided, items are retrieved from that specific list; otherwise the first list is used.
     Returns a list of dictionaries, where each dictionary represents an item and includes keys like 'id', 'value', and 'completed'.
     An empty list is returned if the shopping list is empty or an error occurs.
     """
-    logger.info("Tool 'get_all_items' called.")
-    response = make_api_request("GET", "/items/all")
-
-    if "error" in response:
-        logger.error(f"Error in get_all_items: {response['error']}")
-        return []  # Return empty list on error
+    logger.info(f"Tool 'get_all_items' called with list_name: '{list_name}'.")
+    all_items = get_shopping_list_items(list_name)
 
     # Make sure we return a list even if API somehow returns something else
-    if isinstance(response, list):
-        return response  # API already returns the list format we need
+    if isinstance(all_items, list):
+        return all_items  # API already returns the list format we need
     else:
-        logger.warning(f"Unexpected response format from API, expected list but got: {type(response)}")
+        logger.warning(f"Unexpected response format from API, expected list but got: {type(all_items)}")
         return []
 
 @mcp.tool()
-def get_incomplete_items() -> list[dict]:
+def get_incomplete_items(list_name: Optional[str] = None) -> list[dict]:
     """
     Retrieves only the active (incomplete) items currently on the Alexa shopping list.
+    If list_name is provided, items are retrieved from that specific list; otherwise the first list is used.
     This is useful for seeing what still needs to be purchased.
     Returns a list of dictionaries, each representing an item with keys like 'id', 'value', and 'completed' (which will be false).
     An empty list is returned if there are no active items or an error occurs.
     """
-    logger.info("Tool 'get_incomplete_items' called.")
-    response = make_api_request("GET", "/items/incomplete")
+    logger.info(f"Tool 'get_incomplete_items' called with list_name: '{list_name}'.")
 
-    if "error" in response:
-        logger.error(f"Error in get_incomplete_items: {response['error']}")
-        return []
+    all_items = get_shopping_list_items(list_name) # No longer needs config passed
+    if all_items is None:
+        logger.error("Failed to retrieve items from Alexa API.")
+        raise HTTPException(status_code=503, detail="Could not retrieve shopping list from Alexa.")
+
+    incomplete_items = filter_incomplete_items(all_items)
 
     # Make sure we return a list even if API somehow returns something else
-    if isinstance(response, list):
-        return response
+    if isinstance(incomplete_items, list):
+        return incomplete_items
     else:
-        logger.warning(f"Unexpected response format from API, expected list but got: {type(response)}")
+        logger.warning(f"Unexpected response format from API, expected list but got: {type(incomplete_items)}")
         return []
 
 @mcp.tool()
-def get_completed_items() -> list[dict]:
+def get_completed_items(list_name: Optional[str] = None) -> list[dict]:
     """
     Retrieves only the completed items currently on the Alexa shopping list.
+    If list_name is provided, items are retrieved from that specific list; otherwise the first list is used.
     This shows items that have been marked as done.
     Returns a list of dictionaries, each representing an item with keys like 'id', 'value', and 'completed' (which will be true).
     An empty list is returned if there are no completed items or an error occurs.
     """
-    logger.info("Tool 'get_completed_items' called.")
-    response = make_api_request("GET", "/items/completed")
+    logger.info(f"Tool 'get_completed_items' called with list_name: '{list_name}'.")
+    all_items = get_shopping_list_items(list_name) # No longer needs config passed
+    if all_items is None:
+        logger.error("Failed to retrieve items from Alexa API.")
+        raise HTTPException(status_code=503, detail="Could not retrieve shopping list from Alexa.")
 
-    if "error" in response:
-        logger.error(f"Error in get_completed_items: {response['error']}")
-        return []
+    # Filter completed items directly
+    completed_items = [item for item in all_items if item.get('completed', False)]
 
     # Make sure we return a list even if API somehow returns something else
-    if isinstance(response, list):
-        return response
+    if isinstance(completed_items, list):
+        return completed_items
     else:
-        logger.warning(f"Unexpected response format from API, expected list but got: {type(response)}")
+        logger.warning(f"Unexpected response format from API, expected list but got: {type(completed_items)}")
         return []
 
 @mcp.tool()
@@ -382,7 +413,9 @@ if __name__ == "__main__":
     try:
         print("--- DEBUG: Calling mcp.run()...", file=sys.stderr)
         print("--- MCP Server: Entering mcp.run() ---", file=sys.stderr); sys.stderr.flush()
-        mcp.run()
+
+        mcp.run(transport="streamable-http", host="localhost", port=4000)
+
         print("--- DEBUG: mcp.run() completed (or exited).", file=sys.stderr)
     except Exception as e:
         print(f"--- MCP Server FATAL ERROR: Exception from mcp.run(): {e} ---", file=sys.stderr)

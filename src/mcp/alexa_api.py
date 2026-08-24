@@ -119,38 +119,78 @@ def make_authenticated_request(
         logger.exception(f"Unexpected error during authenticated request: {e}")
         return None
 
-# --- Shopping List Specific Functions ---
-def extract_list_items(response_data: Dict[str, Any]) -> Optional[List[Dict[str, Any]]]:
-    """Extracts list items from the API response."""
-    # Adapt based on actual API response structure if needed
-    for key in response_data.keys():
-        if isinstance(response_data[key], dict) and 'listItems' in response_data[key]:
-            return response_data[key]['listItems']
-    logger.warning("Could not find 'listItems' in response data structure.")
-    logger.debug(f"Full response keys: {list(response_data.keys())}")
-    return None
-
 def filter_incomplete_items(list_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     """Filters a list of items to include only those not marked completed."""
     return [item for item in list_items if not item.get('completed', False)]
 
-def get_shopping_list_items() -> Optional[List[Dict[str, Any]]]:
+def get_shopping_lists() -> Optional[List[str]]:
+    """Get the Alexa lists available to the account"""
+    list_url = f"{api_config.AMAZON_URL}/alexashoppinglists/api/getlistitems"
+    # Pass the config but the function now ignores the cookie_path within it
+    response = make_authenticated_request(list_url, method='GET')
+    if not response:
+        logger.error("Failed to retrieve shopping list data.")
+        return None
+
+    try:
+        response_data = response.json()
+        logger.debug("Successfully retrieved shopping list data.")
+
+    except requests.exceptions.JSONDecodeError as e:
+        logger.error(f"Failed to decode JSON response from shopping list API: {e}")
+        logger.debug(f"Response text: {response.text[:500]}") # Log first 500 chars
+        return None
+        
+    list_names = []
+    for key in response_data.keys():
+        list_entry = response_data[key]
+        if isinstance(list_entry, dict):
+            list_info = list_entry.get('listInfo')
+            if isinstance(list_info, dict) and 'listName' in list_info:
+                list_names.append(list_info['listName'])
+
+    if not list_names:
+        logger.warning("Could not find any 'listInfo.listName' entries in response data structure.")
+        logger.debug(f"Full response keys: {list(response_data.keys())}")
+        return None
+
+    return list_names
+
+def get_shopping_list_items(list_name: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
     """Gets all items from the Alexa shopping list."""
     list_items_url = f"{api_config.AMAZON_URL}/alexashoppinglists/api/getlistitems"
     # Pass the config but the function now ignores the cookie_path within it
     response = make_authenticated_request(list_items_url, method='GET')
-    if response:
-        try:
-            response_data = response.json()
-            logger.debug("Successfully retrieved shopping list data.")
-            return extract_list_items(response_data)
-        except requests.exceptions.JSONDecodeError as e:
-            logger.error(f"Failed to decode JSON response from shopping list API: {e}")
-            logger.debug(f"Response text: {response.text[:500]}") # Log first 500 chars
-            return None
-    else:
+    if not response:
         logger.error("Failed to retrieve shopping list data.")
         return None
+    try:
+        response_data = response.json()
+        logger.debug("Successfully retrieved shopping list data.")
+    except requests.exceptions.JSONDecodeError as e:
+        logger.error(f"Failed to decode JSON response from shopping list API: {e}")
+        logger.debug(f"Response text: {response.text[:500]}") # Log first 500 chars
+        return None
+
+    for key in response_data.keys():
+        list_entry = response_data[key]
+        if not isinstance(list_entry, dict):
+            continue
+
+        if list_name is None:
+            # No list specified: return the items of the first list found.
+            return list_entry.get('listItems')
+
+        list_info = list_entry.get('listInfo')
+        if isinstance(list_info, dict) and list_info.get('listName') == list_name:
+            return list_entry.get('listItems')
+
+    if list_name is not None:
+        logger.warning(f"Could not find a list named '{list_name}' in response data.")
+    else:
+        logger.warning("Could not find any list in response data.")
+    return None
+
 
 def add_shopping_list_item(item_value: str) -> bool:
     """Adds a new item to the Alexa shopping list."""

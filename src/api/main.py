@@ -275,4 +275,4 @@ if __name__ == "__main__":
     # Note: Host '0.0.0.0' makes it accessible on your network
     # Use '127.0.0.1' for local access only
     # Reload=True is for development, disable for production
-    uvicorn.run("main:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("src.api.main:app", host="127.0.0.1", port=8000, reload=True)
