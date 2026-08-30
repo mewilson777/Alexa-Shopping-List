@@ -156,14 +156,15 @@ def get_shopping_lists() -> Optional[List[str]]:
 
     return list_names
 
-def get_shopping_list_items(list_name: Optional[str] = None) -> Optional[List[Dict[str, Any]]]:
-    """Gets all items from the Alexa shopping list."""
+def get_shopping_list_items(list_name: str) -> Optional[List[Dict[str, Any]]]:
+    """Gets all items from the specified Alexa shopping list."""
     list_items_url = f"{api_config.AMAZON_URL}/alexashoppinglists/api/getlistitems"
     # Pass the config but the function now ignores the cookie_path within it
     response = make_authenticated_request(list_items_url, method='GET')
     if not response:
         logger.error("Failed to retrieve shopping list data.")
         return None
+
     try:
         response_data = response.json()
         logger.debug("Successfully retrieved shopping list data.")
@@ -177,18 +178,11 @@ def get_shopping_list_items(list_name: Optional[str] = None) -> Optional[List[Di
         if not isinstance(list_entry, dict):
             continue
 
-        if list_name is None:
-            # No list specified: return the items of the first list found.
-            return list_entry.get('listItems')
-
         list_info = list_entry.get('listInfo')
         if isinstance(list_info, dict) and list_info.get('listName') == list_name:
             return list_entry.get('listItems')
 
-    if list_name is not None:
-        logger.warning(f"Could not find a list named '{list_name}' in response data.")
-    else:
-        logger.warning("Could not find any list in response data.")
+    logger.warning(f"Could not find a list named '{list_name}' in response data.")
     return None
 
 
@@ -225,8 +219,31 @@ def mark_item_as_completed(list_item: Dict[str, Any]) -> bool:
     """Marks a specific shopping list item as completed via the API."""
     return _update_item_completion_status(list_item, completed_status=True)
 
-def delete_shopping_list_item(list_item: Dict[str, Any]) -> bool:
-    """Deletes a specific shopping list item via the API."""
+def _resolve_list_id_by_name(list_name: str) -> Optional[str]:
+    """Looks up the internal list ID for a list, given its display name (listInfo.listName)."""
+    list_items_url = f"{api_config.AMAZON_URL}/alexashoppinglists/api/getlistitems"
+    response = make_authenticated_request(list_items_url, method='GET')
+    if not response:
+        logger.error("Failed to retrieve shopping list data while resolving list name.")
+        return None
+
+    try:
+        response_data = response.json()
+    except requests.exceptions.JSONDecodeError as e:
+        logger.error(f"Failed to decode JSON response while resolving list name: {e}")
+        return None
+
+    for key, list_entry in response_data.items():
+        if isinstance(list_entry, dict):
+            list_info = list_entry.get('listInfo')
+            if isinstance(list_info, dict) and list_info.get('listName') == list_name:
+                return key
+
+    logger.warning(f"Could not find a list named '{list_name}' in response data.")
+    return None
+
+def delete_shopping_list_item(list_name: str, list_item: Dict[str, Any]) -> bool:
+    """Deletes a specific shopping list item from the given list via the API."""
     item_value = list_item.get('value', 'unknown')
     item_id = list_item.get('id')
 
@@ -234,10 +251,16 @@ def delete_shopping_list_item(list_item: Dict[str, Any]) -> bool:
         logger.error(f"Cannot delete item '{item_value}' without an ID.")
         return False
 
-    logger.info(f"Deleting item: {item_value} (ID: {item_id})")
     # Use the correct base endpoint from documentation
     delete_item_path = "/alexashoppinglists/api/deletelistitem"
     url = f"{api_config.AMAZON_URL}{delete_item_path}"
+
+    list_id = _resolve_list_id_by_name(list_name)
+    if not list_id:
+        logger.error(f"Cannot delete item '{item_value}': list '{list_name}' not found.")
+        return False
+    url = f"{url}/{list_id}"
+    logger.info(f"Deleting item: {item_value} (ID: {item_id}) from list '{list_name}' (ID: {list_id})")
 
     # Send the item dict (containing ID) as payload
     response = make_authenticated_request(

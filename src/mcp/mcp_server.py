@@ -106,6 +106,13 @@ def make_api_request(method: str, endpoint: str, json_data: Optional[Dict] = Non
         logger.error(f"Error making API request: {e}")
         return {"error": str(e)}
 
+def _find_item_by_name(items: List[Dict[str, Any]], name: str) -> Optional[Dict[str, Any]]:
+    """Finds the first item in a list matching the name (case-insensitive)."""
+    for item in items:
+        if item.get('value', '').lower() == name.lower():
+            return item
+    return None
+
 # --- Tool Definitions ---
 # These now proxy requests to our FastAPI server
 
@@ -128,10 +135,9 @@ def get_lists() -> list[dict]:
 
 
 @mcp.tool()
-def get_all_items(list_name: Optional[str] = None) -> list[dict]:
+def get_all_items(list_name: str) -> list[dict]:
     """
     Retrieves all items currently on the Alexa shopping list, including both active (incomplete) and completed items.
-    If list_name is provided, items are retrieved from that specific list; otherwise the first list is used.
     Returns a list of dictionaries, where each dictionary represents an item and includes keys like 'id', 'value', and 'completed'.
     An empty list is returned if the shopping list is empty or an error occurs.
     """
@@ -146,10 +152,9 @@ def get_all_items(list_name: Optional[str] = None) -> list[dict]:
         return []
 
 @mcp.tool()
-def get_incomplete_items(list_name: Optional[str] = None) -> list[dict]:
+def get_incomplete_items(list_name: str) -> list[dict]:
     """
     Retrieves only the active (incomplete) items currently on the Alexa shopping list.
-    If list_name is provided, items are retrieved from that specific list; otherwise the first list is used.
     This is useful for seeing what still needs to be purchased.
     Returns a list of dictionaries, each representing an item with keys like 'id', 'value', and 'completed' (which will be false).
     An empty list is returned if there are no active items or an error occurs.
@@ -171,10 +176,9 @@ def get_incomplete_items(list_name: Optional[str] = None) -> list[dict]:
         return []
 
 @mcp.tool()
-def get_completed_items(list_name: Optional[str] = None) -> list[dict]:
+def get_completed_items(list_name: str) -> list[dict]:
     """
     Retrieves only the completed items currently on the Alexa shopping list.
-    If list_name is provided, items are retrieved from that specific list; otherwise the first list is used.
     This shows items that have been marked as done.
     Returns a list of dictionaries, each representing an item with keys like 'id', 'value', and 'completed' (which will be true).
     An empty list is returned if there are no completed items or an error occurs.
@@ -240,19 +244,28 @@ def add_item(item_name: Union[str, List[str]]) -> dict:
     return {"success": all_succeeded, "message": summary_message, "details": results}
 
 @mcp.tool()
-def delete_item(item_name: Union[str, List[str]]) -> dict:
+def delete_item(list_name: str, item_name: Union[str, List[str]]) -> dict:
     """
-    Deletes one or more items from the Alexa shopping list by their exact name (case-insensitive).
+    Deletes one or more items from the specified Alexa shopping list by their exact name (case-insensitive).
     Input can be a single item name as a string (e.g., "Milk") or a list of item names as strings (e.g., ["Old Bread", "Expired Yogurt"]).
     Requires an exact match of the item name to find it on the list. If multiple items have the same name, only one might be deleted per name provided.
     Returns a dictionary indicating the overall success or failure and a summary message.
     If deleting multiple items, it attempts each one; the overall result is success only if all deletions succeed.
     """
-    logger.info(f"Tool 'delete_item' called with item_name(s): '{item_name}'")
+    logger.info(f"Tool 'delete_item' called with item_name(s): '{item_name}' for list '{list_name}'")
 
     item_names = [item_name] if isinstance(item_name, str) else item_name
     results = []
     all_succeeded = True
+
+    all_items = get_shopping_list_items(list_name)
+    if all_items is None:
+        logger.error(f"Failed to retrieve items from list '{list_name}' for deletion.")
+        return {
+            "success": False,
+            "message": f"Could not retrieve shopping list '{list_name}' from Alexa.",
+            "details": [{"item": name, "success": False, "message": "List unavailable."} for name in item_names]
+        }
 
     for name in item_names:
         if not isinstance(name, str) or not name.strip():
@@ -261,13 +274,19 @@ def delete_item(item_name: Union[str, List[str]]) -> dict:
              all_succeeded = False
              continue
 
-        response = make_api_request("DELETE", "/items", {"item_name": name.strip()})
-        success = "error" not in response
-        message = response.get("message", response.get("error", "Unknown result"))
+        item_to_delete = _find_item_by_name(all_items, name.strip())
+        if not item_to_delete:
+            logger.warning(f"Item '{name.strip()}' not found in list '{list_name}' for deletion.")
+            results.append({"item": name.strip(), "success": False, "message": "Item not found."})
+            all_succeeded = False
+            continue
+
+        success = delete_shopping_list_item(list_name, item_to_delete)
+        message = "Deleted successfully." if success else "Failed to delete item."
         results.append({"item": name.strip(), "success": success, "message": message})
         if not success:
             all_succeeded = False
-            logger.error(f"Error deleting item '{name.strip()}': {message}")
+            logger.error(f"Error deleting item '{name.strip()}' from list '{list_name}'.")
 
     # Construct summary message
     if len(item_names) == 1:
