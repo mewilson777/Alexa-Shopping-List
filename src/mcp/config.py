@@ -4,6 +4,14 @@ import logging
 # Logging level for the MCP server
 LOG_LEVEL = "INFO"
 
+
+# Configuration for the API Server (inside Docker)
+COOKIE_PATH = "Cookies/cookies.json"
+
+# Amazon URL for your locale (e.g., amazon.com, amazon.co.uk)
+# Needs to match the one used for login to construct API paths correctly.
+AMAZON_URL = "https://www.amazon.com"
+
 # Host and Port where the API container is running
 # Assumes API container is accessible on localhost from where MCP server runs
 API_HOST = "localhost"

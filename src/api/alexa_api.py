@@ -27,7 +27,7 @@ DEFAULT_HEADERS = {
 
 # Hardcoded path for cookie loading *within the container*
 # Adjusted for JSON format
-CONTAINER_COOKIE_PATH = "/app/data/cookies.json"
+CONTAINER_COOKIE_PATH = "Cookies/cookies.json"
 
 def load_cookies_from_json_file(cookie_file_path: str) -> Optional[List[Dict[str, Any]]]:
     """Loads cookies from a JSON file (expected list of dicts)."""
@@ -193,12 +193,15 @@ def delete_shopping_list_item(list_item: Dict[str, Any]) -> bool:
     if not item_id:
         logger.error(f"Cannot delete item '{item_value}' without an ID.")
         return False
-
+ 
     logger.info(f"Deleting item: {item_value} (ID: {item_id})")
     # Use the correct base endpoint from documentation
     delete_item_path = "/alexashoppinglists/api/deletelistitem"
     url = f"{api_config.AMAZON_URL}{delete_item_path}"
 
+
+    logger.info(f"Mark: url: {url} list_item:{list_item}")
+ 
     # Send the item dict (containing ID) as payload
     response = make_authenticated_request(
         url,

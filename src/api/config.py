@@ -9,7 +9,7 @@ import sys
 logger = logging.getLogger(__name__)
 
 # Configuration for the API Server (inside Docker)
-COOKIE_PATH = "/app/data/cookies.json"
+COOKIE_PATH = "Cookies/cookies.json"
 
 # Amazon URL for your locale (e.g., amazon.com, amazon.co.uk)
 # Needs to match the one used for login to construct API paths correctly.

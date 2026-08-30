@@ -382,7 +382,9 @@ if __name__ == "__main__":
     try:
         print("--- DEBUG: Calling mcp.run()...", file=sys.stderr)
         print("--- MCP Server: Entering mcp.run() ---", file=sys.stderr); sys.stderr.flush()
-        mcp.run()
+
+        mcp.run(transport="streamable-http", host="localhost", port=4000)
+
         print("--- DEBUG: mcp.run() completed (or exited).", file=sys.stderr)
     except Exception as e:
         print(f"--- MCP Server FATAL ERROR: Exception from mcp.run(): {e} ---", file=sys.stderr)
