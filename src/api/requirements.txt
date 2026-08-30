@@ -1,7 +1,0 @@
-fastapi
-uvicorn[standard]
-requests
-python-multipart
-apscheduler
-pydantic>=2.0
-python-dotenv
