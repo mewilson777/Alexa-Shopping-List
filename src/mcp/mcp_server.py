@@ -19,7 +19,7 @@ from pathlib import Path
 try:
     from . import config as mcp_config
     from .alexa_api import ( # Relative import
-        get_shopping_lists,
+        get_all_shopping_lists,
         get_shopping_list_items,
         add_shopping_list_item,
         delete_shopping_list_item,
@@ -106,13 +106,6 @@ def make_api_request(method: str, endpoint: str, json_data: Optional[Dict] = Non
         logger.error(f"Error making API request: {e}")
         return {"error": str(e)}
 
-def _find_item_by_name(items: List[Dict[str, Any]], name: str) -> Optional[Dict[str, Any]]:
-    """Finds the first item in a list matching the name (case-insensitive)."""
-    for item in items:
-        if item.get('value', '').lower() == name.lower():
-            return item
-    return None
-
 # --- Tool Definitions ---
 # These now proxy requests to our FastAPI server
 
@@ -123,7 +116,7 @@ def get_lists() -> list[dict]:
     """
     logger.info("Tool 'get_lists' called.")
     
-    lists = get_shopping_lists()
+    lists = get_all_shopping_lists()
 
     # Make sure we return a list even if API somehow returns something else
     if isinstance(lists, list):
@@ -274,14 +267,7 @@ def delete_item(list_name: str, item_name: Union[str, List[str]]) -> dict:
              all_succeeded = False
              continue
 
-        item_to_delete = _find_item_by_name(all_items, name.strip())
-        if not item_to_delete:
-            logger.warning(f"Item '{name.strip()}' not found in list '{list_name}' for deletion.")
-            results.append({"item": name.strip(), "success": False, "message": "Item not found."})
-            all_succeeded = False
-            continue
-
-        success = delete_shopping_list_item(list_name, item_to_delete)
+        success = delete_shopping_list_item(all_items, name)
         message = "Deleted successfully." if success else "Failed to delete item."
         results.append({"item": name.strip(), "success": success, "message": message})
         if not success:
