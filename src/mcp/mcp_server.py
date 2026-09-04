@@ -380,30 +380,6 @@ def mark_item_incomplete(item_name: Union[str, List[str]]) -> dict:
 
     return {"success": all_succeeded, "message": summary_message, "details": results}
 
-# --- API Status Check ---
-@mcp.tool()
-def check_api_status() -> dict:
-    """
-    Checks if the backend FastAPI server (responsible for communicating with the actual Alexa API) is running and accessible.
-    This is useful for diagnosing connection issues between the MCP server and the FastAPI server.
-    Returns a dictionary with 'status' ('OK' or 'ERROR') and a descriptive 'message'.
-    """
-    logger.info("Tool 'check_api_status' called.")
-    response = make_api_request("GET", "/")
-
-    if "error" in response:
-        logger.error(f"API status check failed: {response['error']}")
-        return {
-            "status": "ERROR",
-            "message": f"FastAPI server is not accessible: {response['error']}"
-        }
-
-    return {
-        "status": "OK",
-        "message": "FastAPI server is running and accessible.",
-        "details": response
-    }
-
 # --- Run Server ---
 if __name__ == "__main__":
     print("--- DEBUG: Entering __main__ block.", file=sys.stderr)
