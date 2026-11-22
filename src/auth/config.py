@@ -8,6 +8,11 @@ AMAZON_URL = "https://www.amazon.com"
 # before sending it to the API container.
 LOCAL_TEMP_COOKIE_PATH = "./alexa_cookie.pickle"
 
+# Path where receive_cookies() saves the extracted cookies as JSON.
+# Relative to the project root; must match COOKIE_PATH in src/mcp/config.py
+# so the MCP server can read them.
+COOKIE_PATH = "Cookies/cookies.json"
+
 # Logging level for the login script
 LOG_LEVEL = "INFO"
 

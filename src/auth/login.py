@@ -6,10 +6,11 @@ import asyncio
 import os
 from pathlib import Path
 import requests  # Needed for POSTing cookies
-from typing import List, Dict # For cookie formatting type hint
+from typing import List, Dict, Optional, Union # For cookie formatting type hint
 import nodriver as uc
 import json # To save cookies locally
 import datetime
+from pydantic import BaseModel  # For request body validation
 
 try:
     # Import the local auth config
@@ -18,6 +19,58 @@ except ImportError as e:
     print(f"Error importing local config: {e}", file=sys.stderr)
     print("Ensure you are running from the project root or have activated the correct environment.", file=sys.stderr)
     sys.exit(1)
+
+# --- Path Modification ---
+# Add the project root directory to the Python path
+# This allows importing modules from the 'src' directory (e.g., alexa_shopping_list)
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+if project_root not in sys.path:
+    sys.path.append(project_root)
+# --- End Path Modification ---
+
+# Define a Pydantic model for the expected cookie structure (adjust if needed)
+class CookieModel(BaseModel):
+    name: str
+    value: str
+    domain: Optional[str] = None
+    path: Optional[str] = None
+    # Add missing fields based on what login.py sends
+    expires: Optional[Union[str, int, float]] = None # Allow various types for expiry
+    secure: Optional[bool] = None
+    httpOnly: Optional[bool] = None
+    # sameSite: Optional[str] = None # Could add if needed
+
+async def receive_cookies(cookies_data: List[CookieModel]): # Expect a list of CookieModel
+    """Saves cookies to the JSON file the MCP server reads from."""
+    # COOKIE_PATH is relative to the project root, same as src/mcp/config.py's COOKIE_PATH
+    cookie_path = os.path.join(project_root, auth_config.COOKIE_PATH)
+    data_dir_container = os.path.dirname(cookie_path) # Get directory from the path
+
+    logger.info(f"Received {len(cookies_data)} cookies. Attempting to save as JSON to: {cookie_path}")
+
+    # Create directory if it doesn't exist
+    try:
+        os.makedirs(data_dir_container, exist_ok=True)
+    except OSError as e:
+        logger.error(f"Could not create data directory '{data_dir_container}': {e}", exc_info=True)
+        raise RuntimeError("Server error: Could not create data directory.")
+
+    try:
+        # Convert Pydantic models back to dicts for JSON serialization
+        cookies_list_of_dicts = [cookie.model_dump(exclude_unset=True) for cookie in cookies_data]
+
+        # Save the received cookie list as a JSON file
+        with open(cookie_path, "w", encoding="utf-8") as f:
+            json.dump(cookies_list_of_dicts, f, indent=2)
+
+        logger.info(f"Successfully saved cookie data as JSON to {cookie_path}")
+        return {"message": "Cookie data received and saved successfully."}
+
+    except Exception as e:
+        logger.error(f"Failed to save cookie data as JSON to {cookie_path}: {e}", exc_info=True)
+        raise RuntimeError(f"Failed to save cookie data: {e}")
+
+
 
 logger = logging.getLogger("login_script")  # Renamed logger for clarity
 
@@ -128,13 +181,14 @@ async def main():
                 serializable_cookies.append({k: v for k, v in cookie_dict.items() if v is not None})
 
             logger.info(f"Formatted {len(serializable_cookies)} cookies for JSON.")
-            # Send the *serializable* list to the API
-            cookie_upload_success = await post_cookies_to_api(serializable_cookies)
-
-            if cookie_upload_success:
+            # Call receive_cookies directly instead of POSTing to the API server that used to call it
+            try:
+                await receive_cookies([CookieModel(**c) for c in serializable_cookies])
+                cookie_upload_success = True
                 logger.info("Manual login confirmation received and cookies sent successfully.")
-            else:
-                logger.error("Cookie extraction may have succeeded, but upload to API failed. See previous logs.")
+            except Exception as e:
+                cookie_upload_success = False
+                logger.error(f"Cookie extraction may have succeeded, but saving cookies failed: {e}")
         # --- End Cookie Extraction Logic --- #
 
         if not cookie_upload_success:
